@@ -1,21 +1,21 @@
 # 📈 Market Prediction Tool
 
-This project is designed to predict company growth trends using machine learning.
+This project aims to predict company trends using machine learning.
 
 ## 🚀 Features
-- Trend prediction using ML
-- Financial data analysis (planned)
-- Future forecasting
+- Predict stock/company growth trends
+- Analyze financial data
+- ML-based forecasting
 
 ## 🛠 Tech Stack
 - Python
 - Pandas
-- Scikit-learn
+- Scikit-learn (planned)
 
-## 📌 Future Plans
-- Add real-world datasets
-- Improve model accuracy
-- Build a web interface
+## 📌 Future Goals
+- Add real dataset training
+- Improve prediction accuracy
+- Deploy as web app
 
 ## 👨‍💻 Author
-Yash
+Yash Baghel

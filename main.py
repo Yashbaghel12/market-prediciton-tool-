@@ -9,9 +9,9 @@ from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score
 
 from transformers import pipeline
-import random
+from newsapi import NewsApiClient
 
-print("🚀 Starting AI + FinBERT System...")
+print("🚀 Starting FINAL AI + FinBERT System...")
 
 # =========================
 # 1. FINBERT LOAD
@@ -29,7 +29,12 @@ def get_sentiment_score(text):
         return 0
 
 # =========================
-# 2. STOCK LIST
+# 2. NEWS API
+# =========================
+newsapi = NewsApiClient(api_key="YOUR_API_KEY")
+
+# =========================
+# 3. STOCK LIST
 # =========================
 stocks = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
@@ -45,7 +50,7 @@ stocks = [
 ]
 
 # =========================
-# 3. DATA DOWNLOAD + CLEAN
+# 4. DATA DOWNLOAD + CLEAN
 # =========================
 data = yf.download(stocks, start="2018-01-01", end="2024-01-01")["Close"]
 
@@ -56,7 +61,7 @@ data = data.dropna()
 returns = data.pct_change().dropna()
 
 # =========================
-# 4. PCA
+# 5. PCA
 # =========================
 pca = PCA(n_components=12)
 pca_features = pca.fit_transform(returns)
@@ -67,7 +72,7 @@ pca_df.columns = [f"PCA_{i}" for i in range(12)]
 print("🧠 PCA Variance:", sum(pca.explained_variance_ratio_))
 
 # =========================
-# 5. RELIANCE FEATURES
+# 6. RELIANCE FEATURES
 # =========================
 rel_close = data["RELIANCE.NS"]
 
@@ -83,46 +88,63 @@ df["MACD"] = macd.macd()
 df["SMA_10"] = rel_close.rolling(10).mean().pct_change()
 df["SMA_50"] = rel_close.rolling(50).mean().pct_change()
 
+df["Momentum"] = df["REL_Return"].rolling(3).mean()
+
 # Lag features
 df["REL_lag1"] = df["REL_Return"].shift(1)
 df["REL_lag2"] = df["REL_Return"].shift(2)
 
 # =========================
-# 6. 🔥 FINBERT SENTIMENT (SIMULATED DATE-WISE)
+# 7. 🔥 FINBERT (WEEKLY REAL NEWS)
 # =========================
+sentiment_map = {}
 
-dummy_news = [
-    "Reliance reports strong earnings growth",
-    "Oil prices rise impacting margins",
-    "Reliance expands telecom business",
-    "Market sees positive outlook for Reliance",
-    "Global slowdown concerns impact stocks"
-]
+print("📰 Fetching weekly sentiment...")
 
+for date in df.index[::7]:
+    try:
+        articles = newsapi.get_everything(
+            q="Reliance stock",
+            from_param=date.strftime("%Y-%m-%d"),
+            to_param=(date + pd.Timedelta(days=7)).strftime("%Y-%m-%d"),
+            language="en"
+        )
+
+        if articles["articles"]:
+            text = " ".join(
+                [a["title"] for a in articles["articles"][:5] if a["title"]]
+            )
+            sentiment_map[date] = get_sentiment_score(text)
+        else:
+            sentiment_map[date] = 0
+
+    except:
+        sentiment_map[date] = 0
+
+# Fill daily sentiment
 sentiments = []
+last_sentiment = 0
 
-print("📰 Generating FinBERT sentiment...")
-
-for i in range(len(df)):
-    text = random.choice(dummy_news)  # simulate daily news
-    sentiments.append(get_sentiment_score(text))
+for date in df.index:
+    if date in sentiment_map:
+        last_sentiment = sentiment_map[date]
+    sentiments.append(last_sentiment)
 
 df["Sentiment"] = sentiments
 
 # =========================
-# 7. MERGE PCA
+# 8. MERGE PCA
 # =========================
 df = pd.concat([df, pca_df], axis=1)
 
 # =========================
-# 8. TARGET
+# 9. TARGET
 # =========================
 df["Target"] = (df["REL_Return"].shift(-1) > 0).astype(int)
-
 df = df.dropna()
 
 # =========================
-# 9. MODEL
+# 10. MODEL
 # =========================
 features = df.columns.drop("Target")
 
@@ -142,7 +164,7 @@ preds = model.predict(X_test)
 print("🔥 Accuracy:", accuracy_score(y_test, preds))
 
 # =========================
-# 10. STRATEGY
+# 11. STRATEGY
 # =========================
 results = df.iloc[split:].copy()
 results["Prediction"] = preds
@@ -168,7 +190,7 @@ for i in range(len(results)):
 results["Position"] = positions
 
 # =========================
-# 11. RETURNS
+# 12. RETURNS
 # =========================
 results["Strategy_Return"] = results["REL_Return"] * results["Position"]
 
@@ -179,8 +201,8 @@ print("\n📈 Market Return:", results["Market"].iloc[-1])
 print("💰 Strategy Return:", results["Strategy"].iloc[-1])
 
 # =========================
-# 12. PLOT
+# 13. PLOT
 # =========================
 results[["Market","Strategy"]].plot(figsize=(10,5))
-plt.title("AI + PCA + FinBERT Strategy")
+plt.title("FINAL AI + PCA + FinBERT Strategy")
 plt.show()

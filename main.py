@@ -8,10 +8,28 @@ from sklearn.decomposition import PCA
 from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score
 
-print("🚀 Starting 50-Stock AI System...")
+from transformers import pipeline
+import random
+
+print("🚀 Starting AI + FinBERT System...")
 
 # =========================
-# 1. 50 STOCK LIST (NSE MIX)
+# 1. FINBERT LOAD
+# =========================
+finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+
+def get_sentiment_score(text):
+    result = finbert(text)[0]
+    
+    if result['label'] == 'positive':
+        return result['score']
+    elif result['label'] == 'negative':
+        return -result['score']
+    else:
+        return 0
+
+# =========================
+# 2. STOCK LIST
 # =========================
 stocks = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
@@ -27,35 +45,26 @@ stocks = [
 ]
 
 # =========================
-# 2. DOWNLOAD DATA
+# 3. DATA DOWNLOAD + CLEAN
 # =========================
 data = yf.download(stocks, start="2018-01-01", end="2024-01-01")["Close"]
 
-# Remove columns (stocks) with too many NaNs
 data = data.dropna(axis=1, thresh=len(data)*0.7)
-
-# Forward fill small gaps
 data = data.ffill()
-
-# Drop remaining NaNs
 data = data.dropna()
 
-# =========================
-# 3. RETURNS
-# =========================
 returns = data.pct_change().dropna()
-if len(data) == 0:
-    raise ValueError("❌ No data left after cleaning. Check stock list.")
+
 # =========================
-# 4. PCA (IMPORTANT)
+# 4. PCA
 # =========================
-pca = PCA(n_components=8)
+pca = PCA(n_components=12)
 pca_features = pca.fit_transform(returns)
 
 pca_df = pd.DataFrame(pca_features, index=returns.index)
-pca_df.columns = [f"PCA_{i}" for i in range(8)]
+pca_df.columns = [f"PCA_{i}" for i in range(12)]
 
-print("🧠 PCA Variance Covered:", sum(pca.explained_variance_ratio_))
+print("🧠 PCA Variance:", sum(pca.explained_variance_ratio_))
 
 # =========================
 # 5. RELIANCE FEATURES
@@ -79,18 +88,41 @@ df["REL_lag1"] = df["REL_Return"].shift(1)
 df["REL_lag2"] = df["REL_Return"].shift(2)
 
 # =========================
-# 6. MERGE PCA
+# 6. 🔥 FINBERT SENTIMENT (SIMULATED DATE-WISE)
+# =========================
+
+dummy_news = [
+    "Reliance reports strong earnings growth",
+    "Oil prices rise impacting margins",
+    "Reliance expands telecom business",
+    "Market sees positive outlook for Reliance",
+    "Global slowdown concerns impact stocks"
+]
+
+sentiments = []
+
+print("📰 Generating FinBERT sentiment...")
+
+for i in range(len(df)):
+    text = random.choice(dummy_news)  # simulate daily news
+    sentiments.append(get_sentiment_score(text))
+
+df["Sentiment"] = sentiments
+
+# =========================
+# 7. MERGE PCA
 # =========================
 df = pd.concat([df, pca_df], axis=1)
 
 # =========================
-# 7. TARGET
+# 8. TARGET
 # =========================
 df["Target"] = (df["REL_Return"].shift(-1) > 0).astype(int)
+
 df = df.dropna()
 
 # =========================
-# 8. MODEL
+# 9. MODEL
 # =========================
 features = df.columns.drop("Target")
 
@@ -110,7 +142,7 @@ preds = model.predict(X_test)
 print("🔥 Accuracy:", accuracy_score(y_test, preds))
 
 # =========================
-# 9. STRATEGY
+# 10. STRATEGY
 # =========================
 results = df.iloc[split:].copy()
 results["Prediction"] = preds
@@ -121,13 +153,14 @@ positions = []
 for i in range(len(results)):
     rsi = results["RSI"].iloc[i]
     pred = results["Prediction"].iloc[i]
+    sentiment = results["Sentiment"].iloc[i]
 
     # BUY
-    if (pred == 1) and (rsi < 65):
+    if (pred == 1) and (rsi < 70) and (sentiment > -0.2):
         position = 1
 
     # SELL
-    elif rsi > 75:
+    elif (rsi > 80) or (sentiment < -0.3):
         position = 0
 
     positions.append(position)
@@ -135,7 +168,7 @@ for i in range(len(results)):
 results["Position"] = positions
 
 # =========================
-# 10. RETURNS
+# 11. RETURNS
 # =========================
 results["Strategy_Return"] = results["REL_Return"] * results["Position"]
 
@@ -146,8 +179,8 @@ print("\n📈 Market Return:", results["Market"].iloc[-1])
 print("💰 Strategy Return:", results["Strategy"].iloc[-1])
 
 # =========================
-# 11. PLOT
+# 12. PLOT
 # =========================
 results[["Market","Strategy"]].plot(figsize=(10,5))
-plt.title("50-Stock PCA Strategy vs Market")
+plt.title("AI + PCA + FinBERT Strategy")
 plt.show()

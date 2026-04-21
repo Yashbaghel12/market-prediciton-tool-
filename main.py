@@ -5,28 +5,27 @@ import ta
 import matplotlib.pyplot as plt
 
 from sklearn.decomposition import PCA
-from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
 
 from transformers import pipeline
 from newsapi import NewsApiClient
 
-print("🚀 Starting FINAL AI + FinBERT System...")
+print("🚀 Starting MULTI-MODEL AI + FinBERT System...")
 
 # =========================
-# 1. FINBERT LOAD
+# 1. FINBERT
 # =========================
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
 
 def get_sentiment_score(text):
     result = finbert(text)[0]
-    
     if result['label'] == 'positive':
         return result['score']
     elif result['label'] == 'negative':
         return -result['score']
-    else:
-        return 0
+    return 0
 
 # =========================
 # 2. NEWS API
@@ -38,36 +37,27 @@ newsapi = NewsApiClient(api_key="YOUR_API_KEY")
 # =========================
 stocks = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
-    "LT.NS","SBIN.NS","BHARTIARTL.NS","ITC.NS","KOTAKBANK.NS",
-    "AXISBANK.NS","ASIANPAINT.NS","MARUTI.NS","HINDUNILVR.NS","SUNPHARMA.NS",
-    "TITAN.NS","ULTRACEMCO.NS","NESTLEIND.NS","BAJFINANCE.NS","WIPRO.NS",
-    "HCLTECH.NS","TECHM.NS","POWERGRID.NS","NTPC.NS","ONGC.NS",
-    "COALINDIA.NS","JSWSTEEL.NS","TATASTEEL.NS","ADANIPORTS.NS","ADANIENT.NS",
-    "BAJAJFINSV.NS","HDFCLIFE.NS","SBILIFE.NS","DIVISLAB.NS","DRREDDY.NS",
-    "CIPLA.NS","HEROMOTOCO.NS","EICHERMOT.NS","BRITANNIA.NS","DABUR.NS",
-    "PIDILITIND.NS","GRASIM.NS","SHREECEM.NS","BPCL.NS","IOC.NS",
-    "INDUSINDBK.NS","M&M.NS","SIEMENS.NS","UPL.NS","VEDL.NS"
+    "LT.NS","SBIN.NS","BHARTIARTL.NS","ITC.NS","KOTAKBANK.NS"
 ]
 
 # =========================
-# 4. DATA DOWNLOAD + CLEAN
+# 4. DATA
 # =========================
 data = yf.download(stocks, start="2018-01-01", end="2024-01-01")["Close"]
 
 data = data.dropna(axis=1, thresh=len(data)*0.7)
-data = data.ffill()
-data = data.dropna()
+data = data.ffill().dropna()
 
 returns = data.pct_change().dropna()
 
 # =========================
 # 5. PCA
 # =========================
-pca = PCA(n_components=12)
+pca = PCA(n_components=8)
 pca_features = pca.fit_transform(returns)
 
 pca_df = pd.DataFrame(pca_features, index=returns.index)
-pca_df.columns = [f"PCA_{i}" for i in range(12)]
+pca_df.columns = [f"PCA_{i}" for i in range(8)]
 
 print("🧠 PCA Variance:", sum(pca.explained_variance_ratio_))
 
@@ -76,10 +66,9 @@ print("🧠 PCA Variance:", sum(pca.explained_variance_ratio_))
 # =========================
 rel_close = data["RELIANCE.NS"]
 
-df = pd.DataFrame()
+df = pd.DataFrame(index=returns.index)
 
 df["REL_Return"] = returns["RELIANCE.NS"]
-
 df["RSI"] = ta.momentum.RSIIndicator(rel_close).rsi()
 
 macd = ta.trend.MACD(rel_close)
@@ -89,17 +78,14 @@ df["SMA_10"] = rel_close.rolling(10).mean().pct_change()
 df["SMA_50"] = rel_close.rolling(50).mean().pct_change()
 
 df["Momentum"] = df["REL_Return"].rolling(3).mean()
-
-# Lag features
 df["REL_lag1"] = df["REL_Return"].shift(1)
 df["REL_lag2"] = df["REL_Return"].shift(2)
 
 # =========================
-# 7. 🔥 FINBERT (WEEKLY REAL NEWS)
+# 7. FINBERT SENTIMENT
 # =========================
 sentiment_map = {}
-
-print("📰 Fetching weekly sentiment...")
+print("📰 Fetching sentiment...")
 
 for date in df.index[::7]:
     try:
@@ -111,24 +97,19 @@ for date in df.index[::7]:
         )
 
         if articles["articles"]:
-            text = " ".join(
-                [a["title"] for a in articles["articles"][:5] if a["title"]]
-            )
+            text = " ".join([a["title"] for a in articles["articles"][:5] if a["title"]])
             sentiment_map[date] = get_sentiment_score(text)
         else:
             sentiment_map[date] = 0
-
     except:
         sentiment_map[date] = 0
 
-# Fill daily sentiment
 sentiments = []
-last_sentiment = 0
-
-for date in df.index:
-    if date in sentiment_map:
-        last_sentiment = sentiment_map[date]
-    sentiments.append(last_sentiment)
+last = 0
+for d in df.index:
+    if d in sentiment_map:
+        last = sentiment_map[d]
+    sentiments.append(last)
 
 df["Sentiment"] = sentiments
 
@@ -144,65 +125,84 @@ df["Target"] = (df["REL_Return"].shift(-1) > 0).astype(int)
 df = df.dropna()
 
 # =========================
-# 10. MODEL
+# 10. TRAIN TEST
 # =========================
-features = df.columns.drop("Target")
-
-X = df[features]
+X = df.drop("Target", axis=1)
 y = df["Target"]
 
-split = int(len(df) * 0.8)
+split = int(len(df)*0.8)
 
 X_train, X_test = X[:split], X[split:]
 y_train, y_test = y[:split], y[split:]
 
-model = XGBClassifier(n_estimators=300, max_depth=6)
-model.fit(X_train, y_train)
+# =========================
+# 11. MODELS
+# =========================
 
-preds = model.predict(X_test)
+# XGBoost
+model_xgb = XGBClassifier(n_estimators=300, max_depth=6)
+model_xgb.fit(X_train, y_train)
+pred_xgb = model_xgb.predict(X_test)
 
-print("🔥 Accuracy:", accuracy_score(y_test, preds))
+# Random Forest
+model_rf = RandomForestClassifier(n_estimators=200, max_depth=8)
+model_rf.fit(X_train, y_train)
+pred_rf = model_rf.predict(X_test)
+
+# Accuracy
+acc_xgb = accuracy_score(y_test, pred_xgb)
+acc_rf = accuracy_score(y_test, pred_rf)
+
+print("🔥 XGB Accuracy:", acc_xgb)
+print("🌲 RF Accuracy:", acc_rf)
 
 # =========================
-# 11. STRATEGY
+# 12. STRATEGY
 # =========================
 results = df.iloc[split:].copy()
-results["Prediction"] = preds
 
-position = 0
-positions = []
+results["Pred_XGB"] = pred_xgb
+results["Pred_RF"] = pred_rf
 
-for i in range(len(results)):
-    rsi = results["RSI"].iloc[i]
-    pred = results["Prediction"].iloc[i]
-    sentiment = results["Sentiment"].iloc[i]
+def run_strategy(pred_col):
+    position = 0
+    positions = []
 
-    # BUY
-    if (pred == 1) and (rsi < 70) and (sentiment > -0.2):
-        position = 1
+    for i in range(len(results)):
+        rsi = results["RSI"].iloc[i]
+        pred = results[pred_col].iloc[i]
+        sentiment = results["Sentiment"].iloc[i]
 
-    # SELL
-    elif (rsi > 80) or (sentiment < -0.3):
-        position = 0
+        if (pred == 1) and (rsi < 70) and (sentiment > -0.2):
+            position = 1
+        elif (rsi > 80) or (sentiment < -0.3):
+            position = 0
 
-    positions.append(position)
+        positions.append(position)
 
-results["Position"] = positions
+    return positions
+
+results["Pos_XGB"] = run_strategy("Pred_XGB")
+results["Pos_RF"] = run_strategy("Pred_RF")
 
 # =========================
-# 12. RETURNS
+# 13. RETURNS
 # =========================
-results["Strategy_Return"] = results["REL_Return"] * results["Position"]
+results["Ret_XGB"] = results["REL_Return"] * results["Pos_XGB"]
+results["Ret_RF"] = results["REL_Return"] * results["Pos_RF"]
+
+results["Strat_XGB"] = (1 + results["Ret_XGB"]).cumprod()
+results["Strat_RF"] = (1 + results["Ret_RF"]).cumprod()
 
 results["Market"] = (1 + results["REL_Return"]).cumprod()
-results["Strategy"] = (1 + results["Strategy_Return"]).cumprod()
 
 print("\n📈 Market Return:", results["Market"].iloc[-1])
-print("💰 Strategy Return:", results["Strategy"].iloc[-1])
+print("💰 XGB Return:", results["Strat_XGB"].iloc[-1])
+print("🌲 RF Return:", results["Strat_RF"].iloc[-1])
 
 # =========================
-# 13. PLOT
+# 14. GRAPH
 # =========================
-results[["Market","Strategy"]].plot(figsize=(10,5))
-plt.title("FINAL AI + PCA + FinBERT Strategy")
+results[["Market","Strat_XGB","Strat_RF"]].plot(figsize=(12,6))
+plt.title("Multi-Model Strategy Comparison")
 plt.show()

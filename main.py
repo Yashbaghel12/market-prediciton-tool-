@@ -14,9 +14,7 @@ from newsapi import NewsApiClient
 
 print("🚀 Starting MULTI-MODEL AI + FinBERT System...")
 
-# =========================
-# 1. FINBERT
-# =========================
+
 finbert = pipeline("sentiment-analysis", model="ProsusAI/finbert")
 
 def get_sentiment_score(text):
@@ -27,22 +25,15 @@ def get_sentiment_score(text):
         return -result['score']
     return 0
 
-# =========================
-# 2. NEWS API
-# =========================
+
 newsapi = NewsApiClient(api_key="YOUR_API_KEY")
 
-# =========================
-# 3. STOCK LIST
-# =========================
+
 stocks = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
     "LT.NS","SBIN.NS","BHARTIARTL.NS","ITC.NS","KOTAKBANK.NS"
 ]
 
-# =========================
-# 4. DATA
-# =========================
 data = yf.download(stocks, start="2018-01-01", end="2024-01-01")["Close"]
 
 data = data.dropna(axis=1, thresh=len(data)*0.7)
@@ -50,9 +41,7 @@ data = data.ffill().dropna()
 
 returns = data.pct_change().dropna()
 
-# =========================
-# 5. PCA
-# =========================
+
 pca = PCA(n_components=8)
 pca_features = pca.fit_transform(returns)
 
@@ -61,9 +50,6 @@ pca_df.columns = [f"PCA_{i}" for i in range(8)]
 
 print("🧠 PCA Variance:", sum(pca.explained_variance_ratio_))
 
-# =========================
-# 6. RELIANCE FEATURES
-# =========================
 rel_close = data["RELIANCE.NS"]
 
 df = pd.DataFrame(index=returns.index)
@@ -81,9 +67,7 @@ df["Momentum"] = df["REL_Return"].rolling(3).mean()
 df["REL_lag1"] = df["REL_Return"].shift(1)
 df["REL_lag2"] = df["REL_Return"].shift(2)
 
-# =========================
-# 7. FINBERT SENTIMENT
-# =========================
+
 sentiment_map = {}
 print("📰 Fetching sentiment...")
 
@@ -113,20 +97,12 @@ for d in df.index:
 
 df["Sentiment"] = sentiments
 
-# =========================
-# 8. MERGE PCA
-# =========================
 df = pd.concat([df, pca_df], axis=1)
 
-# =========================
-# 9. TARGET
-# =========================
+
 df["Target"] = (df["REL_Return"].shift(-1) > 0).astype(int)
 df = df.dropna()
 
-# =========================
-# 10. TRAIN TEST
-# =========================
 X = df.drop("Target", axis=1)
 y = df["Target"]
 
@@ -135,30 +111,22 @@ split = int(len(df)*0.8)
 X_train, X_test = X[:split], X[split:]
 y_train, y_test = y[:split], y[split:]
 
-# =========================
-# 11. MODELS
-# =========================
 
-# XGBoost
 model_xgb = XGBClassifier(n_estimators=300, max_depth=6)
 model_xgb.fit(X_train, y_train)
 pred_xgb = model_xgb.predict(X_test)
 
-# Random Forest
 model_rf = RandomForestClassifier(n_estimators=200, max_depth=8)
 model_rf.fit(X_train, y_train)
 pred_rf = model_rf.predict(X_test)
 
-# Accuracy
 acc_xgb = accuracy_score(y_test, pred_xgb)
 acc_rf = accuracy_score(y_test, pred_rf)
 
-print("🔥 XGB Accuracy:", acc_xgb)
-print("🌲 RF Accuracy:", acc_rf)
+print(" XGB Accuracy:", acc_xgb)
+print(" RF Accuracy:", acc_rf)
 
-# =========================
-# 12. STRATEGY
-# =========================
+
 results = df.iloc[split:].copy()
 
 results["Pred_XGB"] = pred_xgb
@@ -185,9 +153,7 @@ def run_strategy(pred_col):
 results["Pos_XGB"] = run_strategy("Pred_XGB")
 results["Pos_RF"] = run_strategy("Pred_RF")
 
-# =========================
-# 13. RETURNS
-# =========================
+
 results["Ret_XGB"] = results["REL_Return"] * results["Pos_XGB"]
 results["Ret_RF"] = results["REL_Return"] * results["Pos_RF"]
 
@@ -196,9 +162,9 @@ results["Strat_RF"] = (1 + results["Ret_RF"]).cumprod()
 
 results["Market"] = (1 + results["REL_Return"]).cumprod()
 
-print("\n📈 Market Return:", results["Market"].iloc[-1])
-print("💰 XGB Return:", results["Strat_XGB"].iloc[-1])
-print("🌲 RF Return:", results["Strat_RF"].iloc[-1])
+print("\n Market Return:", results["Market"].iloc[-1])
+print("XGB Return:", results["Strat_XGB"].iloc[-1])
+print(" RF Return:", results["Strat_RF"].iloc[-1])
 
 # =========================
 # 14. GRAPH

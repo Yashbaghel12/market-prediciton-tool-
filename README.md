@@ -10,11 +10,6 @@ or private equity
 - Analyze financial data
 - ML-based forecasting
 
->> Tech Stack
-- Python
-- Pandas
-- Scikit-learn (planned)
-
 >> Future Goals
 - Add real dataset training
 - Improve prediction accuracy
